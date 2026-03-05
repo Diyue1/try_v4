@@ -61,7 +61,7 @@ def train():
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.8)
     
     # 【新增】：混合精度训练器
-    scaler = torch.cuda.amp.GradScaler() 
+    scaler = torch.amp.GradScaler('cuda') [cite: 14]
 
     best_acc = 0.0
     for epoch in range(EPOCHS):
@@ -90,18 +90,26 @@ def train():
 
         scheduler.step()
 
-        # 验证部分（保持原有逻辑，但在 torch.no_grad 下运行）
+        # --- 修正后的验证部分 --- 
         model.eval()
         y_true, y_prob = [], []
         with torch.no_grad():
             for inputs, labels in val_loader:
-                with torch.cuda.amp.autocast():
+                # 使用最新的 torch.amp 语法消除警告 
+                with torch.amp.autocast('cuda'):
                     logits = model(inputs.to(DEVICE))
+                    # 手动补上 sigmoid [cite: 13]
                     probs = torch.sigmoid(logits)
+                
                 y_true.extend(labels.numpy())
-                y_prob.extend(outputs.cpu().numpy())
+                # 【关键修复】：将 outputs 修改为 probs 
+                y_prob.extend(probs.cpu().numpy())
 
-        y_pred = [1 if p > 0.5 else 0 for p in y_prob]
+        # 计算指标
+        y_prob = np.array(y_prob)
+        y_true = np.array(y_true)
+        y_pred = (y_prob > 0.5).astype(int)
+        
         acc = accuracy_score(y_true, y_pred) * 100
         ap = average_precision_score(y_true, y_prob) * 100
         print(f"Epoch {epoch+1} | Acc: {acc:.2f}% | AP: {ap:.2f}%")
@@ -112,3 +120,4 @@ def train():
 
 if __name__ == "__main__":
     train()
+
